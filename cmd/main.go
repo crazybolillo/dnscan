@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/crazybolillo/dnscan/internal/export"
 	"github.com/crazybolillo/dnscan/internal/feed"
@@ -33,6 +34,7 @@ func printUsage() {
 func run(ctx context.Context) int {
 	versionFlag := flag.Bool("version", false, "Print the program's version and exit.")
 	helpFlag := flag.Bool("help", false, "Print this help and exit.")
+	timeoutFlag := flag.Int("timeout", 0, "Stop scanning after X seconds. Positive numbers enable this feature.")
 	flag.Parse()
 
 	if *versionFlag {
@@ -45,7 +47,14 @@ func run(ctx context.Context) int {
 		return 0
 	}
 
-	args := os.Args[1:]
+	workCtx := ctx
+	if *timeoutFlag > 0 {
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(*timeoutFlag)*time.Second)
+		workCtx = timeoutCtx
+		defer cancel()
+	}
+
+	args := flag.Args()
 	if len(args) != 1 {
 		printUsage()
 		return 2
@@ -54,10 +63,10 @@ func run(ctx context.Context) int {
 	feeder := feed.New()
 	scanner := scan.New(args[0], feeder.Output)
 
-	go feeder.Start(ctx)
-	go scanner.Start(ctx)
+	go feeder.Start(workCtx)
+	go scanner.Start(workCtx)
 
-	export.Start(ctx, scanner.Output, os.Stdout)
+	export.Start(workCtx, scanner.Output, os.Stdout)
 
 	return 0
 }
