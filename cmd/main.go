@@ -4,8 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/crazybolillo/dnscan/internal/export"
 	"github.com/crazybolillo/dnscan/internal/feed"
@@ -29,6 +34,27 @@ func printUsage() {
 	fmt.Println()
 	flag.PrintDefaults()
 	fmt.Println()
+}
+
+func setupMetrics(zone string) {
+	promauto.NewGauge(prometheus.GaugeOpts{
+		Name:        "dnscan_info",
+		Help:        "Information about the running dnscan process",
+		ConstLabels: prometheus.Labels{"zone": zone},
+	}).Set(1)
+	http.Handle("/metrics", promhttp.Handler())
+
+	go http.ListenAndServe(":9990", nil)
+}
+
+func work(ctx context.Context, zone string) {
+	feeder := feed.New()
+	scanner := scan.New(zone, feeder.Output)
+
+	go feeder.Start(ctx)
+	go scanner.Start(ctx)
+
+	export.Start(ctx, scanner.Output, os.Stdout)
 }
 
 func run(ctx context.Context) int {
@@ -59,14 +85,10 @@ func run(ctx context.Context) int {
 		printUsage()
 		return 2
 	}
+	zone := args[0]
 
-	feeder := feed.New()
-	scanner := scan.New(args[0], feeder.Output)
-
-	go feeder.Start(workCtx)
-	go scanner.Start(workCtx)
-
-	export.Start(workCtx, scanner.Output, os.Stdout)
+	setupMetrics(zone)
+	work(workCtx, zone)
 
 	return 0
 }

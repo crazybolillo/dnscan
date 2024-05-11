@@ -6,7 +6,19 @@ import (
 	"net"
 	"runtime"
 	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var scannedCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "dnscan_scanned_total",
+	Help: "The total number of subdomains that have been scanned",
+})
+var foundCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "dnscan_found_total",
+	Help: "The total number of subdomains with at least one IP address found.",
+})
 
 type HostResolver interface {
 	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
@@ -28,7 +40,7 @@ type Result struct {
 }
 
 func New(zone string, input <-chan string) Scanner {
-	channel := make(chan Result, runtime.GOMAXPROCS(0)/2)
+	channel := make(chan Result, runtime.GOMAXPROCS(0))
 
 	return Scanner{
 		channel:  channel,
@@ -61,6 +73,7 @@ func scan(ctx context.Context, scanner *Scanner) {
 			if !ok {
 				return
 			}
+			scannedCount.Inc()
 
 			host := fmt.Sprintf("%s.%s", subdomain, scanner.Zone)
 			ips, err := scanner.Resolver.LookupIPAddr(ctx, host)
@@ -70,6 +83,8 @@ func scan(ctx context.Context, scanner *Scanner) {
 			if len(ips) == 0 {
 				continue
 			}
+
+			foundCount.Inc()
 			scanner.channel <- Result{Host: host, IPs: ips}
 		}
 	}
