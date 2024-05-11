@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 
@@ -10,21 +11,43 @@ import (
 	"github.com/crazybolillo/dnscan/internal/scan"
 )
 
+var version = "dev"
+
 const usage = `dnscan is a tool for scanning DNS domains.
 
 Usage:
-	dnscan <domain>
-
+	dnscan [options] <domain>
 `
 
 func main() {
 	os.Exit(run(context.Background()))
 }
 
+func printUsage() {
+	fmt.Print(usage)
+	fmt.Println()
+	flag.PrintDefaults()
+	fmt.Println()
+}
+
 func run(ctx context.Context) int {
+	versionFlag := flag.Bool("version", false, "Print the program's version and exit.")
+	helpFlag := flag.Bool("help", false, "Print this help and exit.")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version)
+		return 0
+	}
+
+	if *helpFlag {
+		printUsage()
+		return 0
+	}
+
 	args := os.Args[1:]
 	if len(args) != 1 {
-		fmt.Print(usage)
+		printUsage()
 		return 2
 	}
 
