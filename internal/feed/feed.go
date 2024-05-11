@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 )
 
@@ -49,7 +50,7 @@ func feed(ctx context.Context, reader io.Reader, out chan<- string) {
 }
 
 func NewWithReader(reader io.Reader) Feeder {
-	channel := make(chan string)
+	channel := make(chan string, runtime.GOMAXPROCS(0))
 
 	return Feeder{
 		channel: channel,
