@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -47,9 +48,12 @@ func setupMetrics(zone string) {
 	go http.ListenAndServe(":9990", nil)
 }
 
-func work(ctx context.Context, zone string) {
+func work(ctx context.Context, zone string, resolver *net.Resolver) {
 	feeder := feed.New()
 	scanner := scan.New(zone, feeder.Output)
+	if resolver != nil {
+		scanner.Resolver = resolver
+	}
 
 	go feeder.Start(ctx)
 	go scanner.Start(ctx)
@@ -61,6 +65,7 @@ func run(ctx context.Context) int {
 	versionFlag := flag.Bool("version", false, "Print the program's version and exit.")
 	helpFlag := flag.Bool("help", false, "Print this help and exit.")
 	timeoutFlag := flag.Int("timeout", 0, "Stop scanning after X seconds. Positive numbers enable this feature.")
+	resolverFlag := flag.String("resolver", "", "Use the given server to resolve DNS instead. Format: ipaddr:port")
 	flag.Parse()
 
 	if *versionFlag {
@@ -80,6 +85,23 @@ func run(ctx context.Context) int {
 		defer cancel()
 	}
 
+	var resolver *net.Resolver = net.DefaultResolver
+	if len(*resolverFlag) != 0 {
+		_, _, err := net.SplitHostPort(*resolverFlag)
+		if err != nil {
+			fmt.Println(err)
+			return 2
+		}
+
+		dialer := net.Dialer{}
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network string, address string) (net.Conn, error) {
+				return dialer.DialContext(ctx, network, *resolverFlag)
+			},
+		}
+	}
+
 	args := flag.Args()
 	if len(args) != 1 {
 		printUsage()
@@ -88,7 +110,7 @@ func run(ctx context.Context) int {
 	zone := args[0]
 
 	setupMetrics(zone)
-	work(workCtx, zone)
+	work(workCtx, zone, resolver)
 
 	return 0
 }
