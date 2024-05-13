@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,13 +28,13 @@ Usage:
 `
 
 func main() {
-	os.Exit(run(context.Background()))
+	os.Exit(run(context.Background(), os.Args, os.Stdout))
 }
 
-func printUsage() {
+func printUsage(flg *flag.FlagSet) {
 	fmt.Print(usage)
 	fmt.Println()
-	flag.PrintDefaults()
+	flg.PrintDefaults()
 	fmt.Println()
 }
 
@@ -48,7 +49,7 @@ func setupMetrics(zone string) {
 	go http.ListenAndServe(":9990", nil)
 }
 
-func work(ctx context.Context, zone string, resolver *net.Resolver) {
+func work(ctx context.Context, zone string, resolver *net.Resolver, w io.Writer) {
 	feeder := feed.New()
 	scanner := scan.New(zone, feeder.Output)
 	if resolver != nil {
@@ -58,15 +59,22 @@ func work(ctx context.Context, zone string, resolver *net.Resolver) {
 	go feeder.Start(ctx)
 	go scanner.Start(ctx)
 
-	export.Start(ctx, scanner.Output, os.Stdout)
+	export.Start(ctx, scanner.Output, w)
 }
 
-func run(ctx context.Context) int {
-	versionFlag := flag.Bool("version", false, "Print the program's version and exit.")
-	helpFlag := flag.Bool("help", false, "Print this help and exit.")
-	timeoutFlag := flag.Int("timeout", 0, "Stop scanning after X seconds. Positive numbers enable this feature.")
-	resolverFlag := flag.String("resolver", "", "Use the given server to resolve DNS instead. Format: ipaddr:port")
-	flag.Parse()
+func run(ctx context.Context, args []string, w io.Writer) int {
+	flg := flag.NewFlagSet(args[0], flag.ContinueOnError)
+
+	versionFlag := flg.Bool("version", false, "Print the program's version and exit.")
+	helpFlag := flg.Bool("help", false, "Print this help and exit.")
+	timeoutFlag := flg.Int("timeout", 0, "Stop scanning after X seconds. Positive numbers enable this feature.")
+	resolverFlag := flg.String("resolver", "", "Use the given server to resolve DNS instead. Format: ipaddr:port")
+
+	err := flg.Parse(args[1:])
+	if err != nil {
+		printUsage(flg)
+		return 2
+	}
 
 	if *versionFlag {
 		fmt.Println(version)
@@ -74,7 +82,7 @@ func run(ctx context.Context) int {
 	}
 
 	if *helpFlag {
-		printUsage()
+		printUsage(flg)
 		return 0
 	}
 
@@ -102,15 +110,15 @@ func run(ctx context.Context) int {
 		}
 	}
 
-	args := flag.Args()
-	if len(args) != 1 {
-		printUsage()
+	posArgs := flg.Args()
+	if len(posArgs) != 1 {
+		printUsage(flg)
 		return 2
 	}
-	zone := args[0]
+	zone := posArgs[0]
 
 	setupMetrics(zone)
-	work(workCtx, zone, resolver)
+	work(workCtx, zone, resolver, w)
 
 	return 0
 }
